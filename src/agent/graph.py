@@ -30,7 +30,6 @@ def retrieve_node(state: AgentState) -> AgentState:
     query = state["query"]
 
     if intent == "trend_analysis":
-        # Ekstrak entitas dari query — ambil kata kunci utama
         keywords = ["IHSG", "rupiah", "inflasi", "BI rate", "OJK", "Bank Indonesia"]
         entity = next(
             (kw for kw in keywords if kw.lower() in query.lower()),
@@ -42,12 +41,11 @@ def retrieve_node(state: AgentState) -> AgentState:
         state["context"] = search_news_tool(query, n_results=5)
 
     elif intent == "comparative":
-        # Ambil dua perspektif untuk perbandingan
         context_a = search_news_tool(query, n_results=3)
         context_b = summarize_topic_tool(query)
         state["context"] = f"{context_a}\n\n{context_b}"
 
-    else:  # factual_query
+    else:
         state["context"] = summarize_topic_tool(query)
 
     print(f"[retrieve] context length: {len(state['context'])} chars")
@@ -55,11 +53,7 @@ def retrieve_node(state: AgentState) -> AgentState:
 
 
 def answer_node(state: AgentState) -> AgentState:
-    try:
-        from anthropic import Anthropic
-        client = Anthropic()
-
-        prompt = f"""Kamu adalah analis keuangan Indonesia yang berbicara langsung dan selalu punya opini.
+    prompt = f"""Kamu adalah analis keuangan Indonesia yang berbicara langsung dan selalu punya opini.
 
 Pertanyaan pengguna: {state['query']}
 
@@ -72,21 +66,43 @@ Instruksi:
 - Berikan opini atau rekomendasi jika relevan
 - Gunakan bahasa Indonesia yang natural"""
 
-        response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=512,
-            messages=[{"role": "user", "content": prompt}]
-        )
-        state["answer"] = response.content[0].text
+    # Coba Groq dulu (gratis)
+    groq_key = os.getenv("GROQ_API_KEY")
+    if groq_key:
+        try:
+            from groq import Groq
+            client = Groq(api_key=groq_key)
+            response = client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=512,
+            )
+            state["answer"] = response.choices[0].message.content
+            print(f"[answer] via Groq: {len(state['answer'])} chars")
+            return state
+        except Exception as e:
+            print(f"Groq error: {e}")
 
-    except Exception as e:
-        # Fallback tanpa LLM — tetap berguna
-        state["answer"] = (
-            f"Berdasarkan data terkini:\n{state['context'][:300]}..."
-        )
-        print(f"LLM error (fallback): {e}")
+    # Fallback ke Anthropic
+    anthropic_key = os.getenv("ANTHROPIC_API_KEY")
+    if anthropic_key and anthropic_key != "your_key_here":
+        try:
+            from anthropic import Anthropic
+            client = Anthropic(api_key=anthropic_key)
+            response = client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=512,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            state["answer"] = response.content[0].text
+            print(f"[answer] via Anthropic: {len(state['answer'])} chars")
+            return state
+        except Exception as e:
+            print(f"Anthropic error: {e}")
 
-    print(f"[answer] generated: {len(state['answer'])} chars")
+    # Final fallback tanpa LLM
+    state["answer"] = f"Berdasarkan data terkini:\n{state['context'][:300]}..."
+    print(f"[answer] fallback: {len(state['answer'])} chars")
     return state
 
 
@@ -104,14 +120,11 @@ def build_graph():
         workflow.add_edge("answer", END)
 
         return workflow.compile()
-
     except ImportError:
-        print("LangGraph not available, using sequential pipeline")
         return None
 
 
 def run_pipeline(query: str) -> dict:
-    """Jalankan pipeline secara sequential — fallback kalau LangGraph error."""
     state = AgentState(query=query, intent="", context="", answer="")
     state = classify_node(state)
     state = retrieve_node(state)
@@ -127,18 +140,10 @@ if __name__ == "__main__":
     ]
 
     print("=== LangGraph Agent Test ===\n")
-
-    graph = build_graph()
-
     for query in test_queries:
         print(f"Query: {query}")
         print("-" * 50)
-
-        if graph:
-            result = graph.invoke({"query": query, "intent": "", "context": "", "answer": ""})
-        else:
-            result = run_pipeline(query)
-
+        result = run_pipeline(query)
         print(f"Intent : {result['intent']}")
         print(f"Answer : {result['answer']}")
         print()
