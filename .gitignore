@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+chroma_db/
+data/raw/
+*.parquet
+*.log
+.DS_Store
+airflow/logs/
+airflow/plugins/
+requirements-lock.txt
