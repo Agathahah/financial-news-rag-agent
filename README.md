@@ -111,5 +111,5 @@ Project ini membangun sistem yang bisa menjawab:
 
 ## Business Impact
 
-Lihat reports/business_impact.md untuk analisis lengkap
+Lihat [reports/business_impact.md](reports/business_impact.md) untuk analisis lengkap
 keputusan arsitektur dan hasil terukur.
